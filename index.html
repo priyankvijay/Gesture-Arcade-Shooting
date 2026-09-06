@@ -55,7 +55,6 @@
     image-rendering:pixelated; filter: contrast(1.05) saturate(1.15); transition: opacity .2s;
   }
   
-  /* FIXED CAMERA CROP */
   #camPreview video{ position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; transform: scaleX(-1); }
   
   #camLabel{ position:absolute; top:0; left:0; right:0; font-size:7px; color:var(--accent3); background:rgba(0,0,0,0.6); padding:2px 4px; letter-spacing:1px; }
@@ -75,7 +74,6 @@
   }
   #vignette{ position:absolute; inset:0; pointer-events:none; z-index:20; box-shadow: inset 0 0 140px 40px rgba(0,0,0,0.65); }
 
-  /* RESPONSIVE CSS LOGIC */
   @media (max-width: 900px) {
     #camPreview { width: 210px; height: 157px; }
   }
@@ -417,18 +415,15 @@ function drawHeart(x,y,size,filled){
   for (let r=0;r<cells.length;r++){ for (let c=0;c<cells[r].length;c++){ if (cells[r][c]==='1') ctx.fillRect(Math.round(x+c*s), Math.round(y+r*s), Math.ceil(s), Math.ceil(s)); } }
 }
 
-// FULLY RESPONSIVE DYNAMIC HUD
 function drawHUD(){
   const isMob = W < 600;
   const barH = isMob ? 84 : 64; 
   ctx.fillStyle = PAL.border; ctx.fillRect(0,0,W,barH+6); ctx.fillStyle = PAL.panel; ctx.fillRect(0,0,W,barH);
   ctx.fillStyle = 'rgba(255,255,255,0.04)'; for (let x=0;x<W;x+=8) ctx.fillRect(x,0,4,barH);
 
-  // Score
   ctx.fillStyle = PAL.accent; ctx.font = (isMob?"12px":"16px") + " 'Press Start 2P'"; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('SCORE', 12, isMob?18:20);
   ctx.fillStyle = PAL.white; ctx.font = (isMob?"14px":"18px") + " 'Press Start 2P'"; ctx.fillText(String(GAME.score).padStart(5,'0'), 12, isMob?38:44);
 
-  // Ammo Stacked
   const ammoX = isMob ? 12 : W/2 - 110;
   ctx.fillStyle = PAL.accent4; ctx.font = "10px 'Press Start 2P'"; ctx.textAlign = 'left'; ctx.fillText('AMMO', ammoX, isMob?60:12);
   for (let i=0;i<GAME.maxAmmo;i++){
@@ -445,7 +440,6 @@ function drawHUD(){
     ctx.fillStyle = PAL.accent3; ctx.fillRect(ammoX+(isMob?82:94), isMob?78:52, Math.round((isMob?66:86)*pct), 6);
   }
 
-  // Lives
   const baseLivesX = isMob ? W - 120 : W - 24 - 5*30; 
   ctx.fillStyle = PAL.accent2; ctx.font = "10px 'Press Start 2P'"; ctx.textAlign = 'left'; ctx.fillText('LIVES', baseLivesX, 12);
   for (let i=0;i<5;i++) drawHeart(baseLivesX + i*(isMob?22:30), 22, isMob?18:24, i < GAME.lives);
