@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BALLOON BLASTER 8-BIT — Gesture Arcade Shooter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+  :root{
+    --ink:#0d0b1a; --panel:#1c1830; --panel-light:#2f2850;
+    --accent:#ffd24d; --accent2:#ff4d6d; --accent3:#4dff88; --accent4:#4dd2ff;
+    --border:#080614; --white:#f4f2ff;
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:var(--ink); overflow:hidden;
+    font-family:'Press Start 2P', monospace;
+    image-rendering: pixelated;
+    -webkit-user-select:none; user-select:none; touch-action:none;
+  }
+
+  #stage{
+    position:relative; width:100vw; height:100vh;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 2px, transparent 2px, transparent 4px),
+      linear-gradient(#120f22, #1a1533 60%, #0d0b1a);
+    overflow:hidden;
+  }
+
+  #gameCanvas{ position:absolute; top:0; left:0; width:100%; height:100%; cursor:none; }
+
+  #speedometer {
+    position: absolute; top: 76px; left: 14px;
+    z-index: 10; display: flex; gap: 8px; align-items: center;
+    background: rgba(13, 11, 26, 0.85); padding: 8px;
+    border: 3px solid var(--panel-light); box-shadow: 4px 4px 0 var(--border);
+  }
+  .speed-label { color: var(--accent4); font-size: 10px; margin-right: 4px; }
+  .speed-btn {
+    background: var(--panel); color: var(--white); border: 2px solid var(--border);
+    font-family: 'Press Start 2P', monospace; font-size: 9px;
+    padding: 8px 10px; cursor: pointer; box-shadow: 2px 2px 0 var(--border);
+  }
+  .speed-btn.active { background: var(--accent); color: var(--ink); border-color: var(--white); transform: translate(2px, 2px); box-shadow: none; }
+  .speed-btn:hover:not(.active) { background: var(--panel-light); }
+
+  #camPreview{
+    position:absolute; bottom:14px; left:14px; width:280px; height:210px;
+    border:4px solid var(--border); outline:3px solid var(--accent);
+    box-shadow: 0 0 0 3px var(--border), 6px 6px 0 rgba(0,0,0,0.5);
+    background:#000; overflow:hidden; z-index:5;
+    image-rendering:pixelated; filter: contrast(1.05) saturate(1.15); transition: opacity .2s;
+  }
+  
+  /* FIXED CAMERA CROP */
+  #camPreview video{ position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; transform: scaleX(-1); }
+  
+  #camLabel{ position:absolute; top:0; left:0; right:0; font-size:7px; color:var(--accent3); background:rgba(0,0,0,0.6); padding:2px 4px; letter-spacing:1px; }
+
+  #loadingNote{
+    position:absolute; top:14px; left:50%; transform:translateX(-50%);
+    color:var(--accent2); font-size:9px; background:rgba(0,0,0,0.55);
+    padding:6px 10px; border:2px solid var(--accent2); z-index:9;
+    display:none; text-align:center; max-width:80vw;
+  }
+
+  .pixel-btn{ font-family:'Press Start 2P', monospace; }
+
+  #scanlines{
+    position:absolute; inset:0; pointer-events:none; z-index:20;
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,0.14) 0px, rgba(0,0,0,0.14) 1px, transparent 2px, transparent 4px); mix-blend-mode: multiply;
+  }
+  #vignette{ position:absolute; inset:0; pointer-events:none; z-index:20; box-shadow: inset 0 0 140px 40px rgba(0,0,0,0.65); }
+
+  /* RESPONSIVE CSS LOGIC */
+  @media (max-width: 900px) {
+    #camPreview { width: 210px; height: 157px; }
+  }
+  @media (max-width: 600px) {
+    #speedometer { top: 96px; left: 8px; padding: 4px; gap: 4px; border-width: 2px; }
+    .speed-label { font-size: 8px; margin-right: 2px; }
+    .speed-btn { font-size: 7px; padding: 6px 6px; }
+    #camPreview { width: 140px; height: 105px; bottom: 8px; left: 8px; border-width: 2px; outline-width: 2px; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="speedometer">
+    <div class="speed-label">SPEED:</div>
+    <button class="speed-btn active" id="btnSlow" onclick="setSpeed('slow')">SLOW</button>
+    <button class="speed-btn" id="btnMed" onclick="setSpeed('medium')">MED</button>
+    <button class="speed-btn" id="btnHard" onclick="setSpeed('hard')">HARD</button>
+  </div>
+
+  <div id="camPreview" style="display:none;">
+    <div id="camLabel">CAM // GESTURE</div>
+    <video id="inputVideo" autoplay playsinline muted></video>
+  </div>
+
+  <div id="loadingNote"></div>
+  <div id="scanlines"></div>
+  <div id="vignette"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+(function(){
+"use strict";
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d', { alpha:false });
+const camPreview = document.getElementById('camPreview');
+const videoEl = document.getElementById('inputVideo');
+const loadingNote = document.getElementById('loadingNote');
+
+let W = 0, H = 0, DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+function resize(){
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0); ctx.imageSmoothingEnabled = false;
+}
+window.addEventListener('resize', resize); resize();
+
+function showNote(msg, autoHideMs){
+  loadingNote.textContent = msg; loadingNote.style.display = 'block';
+  if (autoHideMs){ clearTimeout(showNote._t); showNote._t = setTimeout(()=>{ loadingNote.style.display='none'; }, autoHideMs); }
+}
+
+const PAL = { bg1:'#120f22', bg2:'#1a1533', ink:'#0d0b1a', border:'#080614', panel:'#221c3d', panelLight:'#332a5c', accent:'#ffd24d', accent2:'#ff4d6d', accent3:'#4dff88', accent4:'#4dd2ff', white:'#f4f2ff', laser:'#5dffa8', laserCore:'#e8ffef' };
+
+const BALLOON_TYPES = [
+  { fill:'#ff5566', shade:'#b8283b', shine:'#ffb3bd', points:10 },
+  { fill:'#4dd2ff', shade:'#1f8fc7', shine:'#c8f2ff', points:15 },
+  { fill:'#ffd24d', shade:'#c99a1a', shine:'#fff2c2', points:20 },
+  { fill:'#4dff88', shade:'#1fbf5c', shine:'#c6ffdc', points:25 },
+  { fill:'#c48dff', shade:'#7d3fd1', shine:'#e9d6ff', points:30 }
+];
+
+const BALLOON_MASK = [ "..#####..", ".#######.", "#########", "#########", "#########", "#########", "#########", ".#######.", "..#####..", "...###...", "....#...." ];
+const BALLOON_ROWS = BALLOON_MASK.length, BALLOON_COLS = BALLOON_MASK[0].length;
+
+function drawPixelBalloon(x, y, r, type, wobble){
+  const size = (r * 2.1) / BALLOON_COLS, totalW = size * BALLOON_COLS, totalH = size * BALLOON_ROWS;
+  const ox = x - totalW/2, oy = y - totalH/2 - size, tilt = Math.sin(wobble) * 0.05;
+
+  ctx.save(); ctx.translate(x, y); ctx.rotate(tilt); ctx.translate(-x, -y);
+
+  for(let row=0; row<BALLOON_ROWS; row++){
+    for(let col=0; col<BALLOON_COLS; col++){
+      if (BALLOON_MASK[row][col] === '#'){
+        const px = ox + col*size, py = oy + row*size;
+        let color = type.fill;
+        if (row < 3 && col < 4) color = type.shine;
+        if (row > BALLOON_ROWS-4) color = type.shade;
+        if (col === BALLOON_COLS-1 || row === BALLOON_ROWS-1) color = type.shade;
+        ctx.fillStyle = color;
+        ctx.fillRect(Math.round(px), Math.round(py), Math.ceil(size)+1, Math.ceil(size)+1);
+      }
+    }
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 2;
+  ctx.strokeRect(Math.round(ox+size*1.2), Math.round(oy), Math.round(totalW-size*2.2), Math.round(totalH-size*2));
+  ctx.restore();
+
+  ctx.strokeStyle = '#c9c2ff'; ctx.lineWidth = 2; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(x, oy + totalH); ctx.lineTo(x + Math.sin(wobble*1.3)*4, oy + totalH + 14);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+
+const GAME = {
+  state: 'menu', score: 0, lives: 5, ammo: 6, maxAmmo: 6,
+  reloading: false, reloadStart: 0, reloadMs: 3000,
+  balloons: [], particles: [], floats: [],
+  spawnTimer: 0, elapsed: 0, screenFlash: 0, muzzleFlash: 0,
+  inputMode: 'mouse', cameraReady: false, cameraFailed: false,
+  speedMode: 'slow', fallSeconds: 15, spawnInterval: 10
+};
+
+window.setSpeed = function(mode) {
+  GAME.speedMode = mode;
+  document.querySelectorAll('.speed-btn').forEach(btn => btn.classList.remove('active'));
+  
+  if(mode === 'slow') { GAME.fallSeconds = 15; GAME.spawnInterval = 10; document.getElementById('btnSlow').classList.add('active'); }
+  if(mode === 'medium') { GAME.fallSeconds = 10; GAME.spawnInterval = 5; document.getElementById('btnMed').classList.add('active'); }
+  if(mode === 'hard') { GAME.fallSeconds = 5; GAME.spawnInterval = 2; document.getElementById('btnHard').classList.add('active'); }
+  
+  GAME.spawnTimer = 0; 
+  if(GAME.state === 'playing') GAME.balloons = []; 
+};
+
+class Balloon{
+  constructor(cw, ch){
+    this.r = 26 + Math.random()*16;
+    this.swayAmp = 18 + Math.random()*46;
+    const safeMargin = 80 + this.swayAmp + this.r; 
+    this.baseX = safeMargin + Math.random()*(cw - safeMargin * 2);
+    
+    this.x = this.baseX;
+    this.y = -this.r*2 - Math.random()*100;
+    this.vy = (ch / GAME.fallSeconds) * (0.9 + Math.random()*0.2); 
+    this.swaySpeed = 0.6 + Math.random()*1.4;
+    this.phase = Math.random()*Math.PI*2;
+    this.t = Math.random()*10;
+    this.type = BALLOON_TYPES[Math.floor(Math.random()*BALLOON_TYPES.length)];
+    this.dead = false; this.popped = false;
+  }
+  update(dt){
+    this.t += dt;
+    this.baseX += Math.sin(this.t*0.3 + this.phase) * 4 * dt;
+    this.x = this.baseX + Math.sin(this.t*this.swaySpeed + this.phase) * this.swayAmp;
+    this.y += this.vy * dt;
+  }
+  containsPoint(px, py){
+    const dx = px - this.x, dy = py - (this.y - this.r*0.3);
+    return (dx*dx + dy*dy) <= (this.r*this.r*1.05);
+  }
+  draw(){ drawPixelBalloon(this.x, this.y, this.r, this.type, this.t*2 + this.phase); }
+}
+
+class Particle{
+  constructor(x,y,color){
+    this.x=x; this.y=y;
+    const ang = Math.random()*Math.PI*2, spd = 60 + Math.random()*220;
+    this.vx = Math.cos(ang)*spd; this.vy = Math.sin(ang)*spd - 40;
+    this.size = 3 + Math.random()*5; this.life = 0.5 + Math.random()*0.4;
+    this.age = 0; this.color = color; this.grav = 260;
+  }
+  update(dt){ this.age += dt; this.vy += this.grav*dt; this.x += this.vx*dt; this.y += this.vy*dt; }
+  get dead(){ return this.age >= this.life; }
+  draw(){
+    const a = Math.max(0, 1 - this.age/this.life);
+    ctx.globalAlpha = a; ctx.fillStyle = this.color;
+    ctx.fillRect(Math.round(this.x - this.size/2), Math.round(this.y - this.size/2), Math.ceil(this.size), Math.ceil(this.size));
+    ctx.globalAlpha = 1;
+  }
+}
+
+class FloatText{
+  constructor(x,y,text,color){ this.x=x; this.y=y; this.text=text; this.color=color; this.age=0; this.life=0.8; }
+  update(dt){ this.age += dt; this.y -= 40*dt; }
+  get dead(){ return this.age >= this.life; }
+  draw(){
+    const a = Math.max(0, 1 - this.age/this.life);
+    ctx.globalAlpha = a; ctx.fillStyle = this.color; ctx.font = "12px 'Press Start 2P'";
+    ctx.textAlign = 'center'; ctx.fillText(this.text, this.x, this.y); ctx.globalAlpha = 1;
+  }
+}
+
+const INPUT = { x: 0, y: 0, targetX: 0, targetY: 0, fireEdge: false, pinching: false, wasPinching: false, active: false };
+let lastMouseTime = 0, lastMouseX = -1, lastMouseY = -1;
+
+canvas.addEventListener('pointermove', (e)=>{
+  const rect = canvas.getBoundingClientRect();
+  const nx = e.clientX - rect.left, ny = e.clientY - rect.top;
+  if (Math.abs(nx - lastMouseX) > 2 || Math.abs(ny - lastMouseY) > 2) {
+    lastMouseTime = performance.now(); lastMouseX = nx; lastMouseY = ny;
+    INPUT.targetX = nx; INPUT.targetY = ny; GAME.inputMode = 'mouse';
+  }
+});
+
+canvas.addEventListener('pointerdown', (e)=>{
+  lastMouseTime = performance.now();
+  const rect = canvas.getBoundingClientRect();
+  INPUT.targetX = e.clientX - rect.left; INPUT.targetY = e.clientY - rect.top;
+  GAME.inputMode = 'mouse'; INPUT.fireEdge = true;
+});
+
+let handsModel = null, mpCamera = null;
+function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+
+function onHandsResults(results){
+  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0){ INPUT.active = false; return; }
+  if (performance.now() - lastMouseTime > 1500) {
+    const lm = results.multiHandLandmarks[0];
+    const indexTip = lm[8], thumbTip = lm[4], wrist = lm[0], middleMcp = lm[9];
+    
+    INPUT.targetX = (1 - indexTip.x) * W; INPUT.targetY = indexTip.y * H;
+    INPUT.active = true; GAME.inputMode = 'gesture';
+
+    const handScale = Math.max(0.02, dist(wrist, middleMcp));
+    const isPinch = (dist(thumbTip, indexTip) / handScale) < 0.20;
+    INPUT.pinching = isPinch;
+    if (isPinch && !INPUT.wasPinching) INPUT.fireEdge = true;
+    INPUT.wasPinching = isPinch;
+  }
+}
+
+function initGestureControl(){
+  try{
+    showNote('LOADING CAMERA + HAND MODEL...');
+    handsModel = new Hands({ locateFile: (file)=> `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+    handsModel.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.6, minTrackingConfidence: 0.55 });
+    handsModel.onResults(onHandsResults);
+    mpCamera = new Camera(videoEl, { onFrame: async ()=>{ try{ await handsModel.send({image: videoEl}); }catch(e){} }, width: 480, height: 360 });
+    mpCamera.start().then(()=>{ GAME.cameraReady = true; camPreview.style.display = 'block'; showNote('CAMERA READY — POINT FINGER & PINCH TO FIRE', 2200); })
+    .catch((err)=>{ GAME.cameraFailed = true; showNote('CAMERA UNAVAILABLE — USING TOUCH CONTROLS', 3000); });
+  }catch(err){ GAME.cameraFailed = true; showNote('GESTURE MODE UNAVAILABLE — USING TOUCH CONTROLS', 3000); }
+}
+
+function updateSmoothing(dt){
+  const k = 1 - Math.exp(-(GAME.inputMode === 'gesture' ? 22 : 40) * dt);
+  INPUT.x += (INPUT.targetX - INPUT.x) * k; INPUT.y += (INPUT.targetY - INPUT.y) * k;
+}
+
+function makeButton(x,y,w,h,label,action){ return {x,y,w,h,label,action}; }
+function pointInBtn(px,py,b){ return px>=b.x && px<=b.x+b.w && py>=b.y && py<=b.y+b.h; }
+function drawButton(b, hover){
+  ctx.save(); const bx=Math.round(b.x), by=Math.round(b.y), bw=Math.round(b.w), bh=Math.round(b.h);
+  ctx.fillStyle = PAL.border; ctx.fillRect(bx-4, by-4, bw+8, bh+8);
+  ctx.fillStyle = hover ? PAL.accent : PAL.panelLight; ctx.fillRect(bx, by, bw, bh);
+  ctx.fillStyle = hover ? '#fff6d9' : PAL.panel; ctx.fillRect(bx+4, by+4, bw-8, bh-8);
+  ctx.fillStyle = hover ? PAL.ink : PAL.white; ctx.font = `${Math.max(8, Math.floor(bh*0.28))}px 'Press Start 2P'`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(b.label, bx+bw/2, by+bh/2+2);
+  ctx.restore();
+}
+let activeButtons = [];
+function hitTestButtons(px,py){ for (const b of activeButtons){ if (pointInBtn(px,py,b)) return b; } return null; }
+
+function resetGame(){
+  GAME.score = 0; GAME.lives = 5; GAME.ammo = GAME.maxAmmo;
+  GAME.reloading = false; GAME.balloons = []; GAME.particles = []; GAME.floats = [];
+  GAME.spawnTimer = 0; GAME.elapsed = 0; GAME.screenFlash = 0; GAME.muzzleFlash = 0;
+  setSpeed(GAME.speedMode); 
+}
+function startGame(){ resetGame(); GAME.state = 'playing'; }
+
+function popBalloon(b){
+  b.popped = true; GAME.score += b.type.points;
+  for (let i=0;i<14;i++) GAME.particles.push(new Particle(b.x, b.y, Math.random()<0.5 ? b.type.fill : b.type.shade));
+  GAME.floats.push(new FloatText(b.x, b.y, `+${b.type.points}`, PAL.accent3));
+}
+
+function tryFire(){
+  if (GAME.reloading || GAME.ammo <= 0) return;
+  GAME.ammo -= 1; GAME.muzzleFlash = 0.08;
+  let hit = null;
+  for (let i = GAME.balloons.length - 1; i >= 0; i--){
+    const b = GAME.balloons[i];
+    if (!b.popped && b.containsPoint(INPUT.x, INPUT.y)){ hit = b; break; }
+  }
+  if (hit) popBalloon(hit); else GAME.floats.push(new FloatText(INPUT.x, INPUT.y, 'MISS', PAL.accent2));
+  if (GAME.ammo <= 0){ GAME.reloading = true; GAME.reloadStart = performance.now(); GAME.floats.push(new FloatText(W/2, H*0.28, 'RELOADING...', PAL.accent)); }
+}
+
+function updatePlaying(dt){
+  GAME.elapsed += dt; GAME.spawnTimer -= dt;
+  if (GAME.spawnTimer <= 0){ GAME.spawnTimer = GAME.spawnInterval * (0.8 + Math.random()*0.4); GAME.balloons.push(new Balloon(W, H)); }
+  for (const b of GAME.balloons) if (!b.popped) b.update(dt);
+  for (let i = GAME.balloons.length - 1; i>=0; i--){
+    const b = GAME.balloons[i];
+    if (b.popped){ GAME.balloons.splice(i,1); continue; }
+    if (b.y - b.r > H + 20){
+      GAME.balloons.splice(i,1); GAME.lives -= 1; GAME.screenFlash = 0.35;
+      GAME.floats.push(new FloatText(b.x, H*0.5, '-1 LIFE', PAL.accent2));
+      if (GAME.lives <= 0) GAME.state = 'gameover';
+    }
+  }
+  for (let i=GAME.particles.length-1;i>=0;i--){ GAME.particles[i].update(dt); if (GAME.particles[i].dead) GAME.particles.splice(i,1); }
+  for (let i=GAME.floats.length-1;i>=0;i--){ GAME.floats[i].update(dt); if (GAME.floats[i].dead) GAME.floats.splice(i,1); }
+
+  if (GAME.reloading && performance.now() - GAME.reloadStart >= GAME.reloadMs){ GAME.reloading = false; GAME.ammo = GAME.maxAmmo; GAME.floats.push(new FloatText(W/2, H*0.28, 'RELOADED!', PAL.accent3)); }
+  if (GAME.muzzleFlash > 0) GAME.muzzleFlash = Math.max(0, GAME.muzzleFlash - dt*4);
+  if (GAME.screenFlash > 0) GAME.screenFlash = Math.max(0, GAME.screenFlash - dt*1.2);
+}
+
+function handleFireEdge(){
+  if (!INPUT.fireEdge) return;
+  INPUT.fireEdge = false;
+  const btn = hitTestButtons(INPUT.x, INPUT.y);
+  if (btn){ btn.action(); return; }
+  if (GAME.state === 'playing') tryFire();
+}
+
+let bgStars = [];
+function initStars(){ bgStars = []; for (let i=0;i<60;i++) bgStars.push({x:Math.random()*W, y:Math.random()*H*0.7, s: 1+Math.random()*2, tw: Math.random()*Math.PI*2}); }
+initStars(); window.addEventListener('resize', initStars);
+
+function drawBackground(dt, t){
+  ctx.fillStyle = PAL.bg1; ctx.fillRect(0,0,W,H);
+  const grad = ctx.createLinearGradient(0,0,0,H); grad.addColorStop(0, '#1a1440'); grad.addColorStop(0.6, '#161028'); grad.addColorStop(1, '#0d0b1a');
+  ctx.fillStyle = grad; ctx.fillRect(0,0,W,H);
+  for (const s of bgStars){ ctx.globalAlpha = Math.max(0, 0.4 + 0.4*Math.sin(t*2 + s.tw)); ctx.fillStyle = PAL.white; ctx.fillRect(Math.round(s.x), Math.round(s.y), s.s, s.s); }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#241c46'; const blockW = 40; for (let x=0; x<W; x+=blockW){ const h = 40 + (Math.sin(x*0.02)+1)*30; ctx.fillRect(x, H-h-70, blockW, h); }
+  ctx.fillStyle = '#1a1533'; for (let x=0; x<W; x+=blockW){ const h = 20 + (Math.cos(x*0.03)+1)*20; ctx.fillRect(x, H-h-40, blockW, h); }
+  ctx.fillStyle = '#120f22'; ctx.fillRect(0, H-40, W, 40);
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; for (let x=0;x<W;x+=20){ ctx.beginPath(); ctx.moveTo(x,H-40); ctx.lineTo(x,H); ctx.stroke(); }
+}
+
+function gunPos(){ return { x: W/2, y: H - 22 }; }
+function drawTurret(){
+  const g = gunPos(); ctx.save(); ctx.translate(g.x, g.y); const ang = Math.atan2(INPUT.y - g.y, INPUT.x - g.x);
+  ctx.fillStyle = PAL.border; ctx.fillRect(-26,-6,52,26); ctx.fillStyle = PAL.panelLight; ctx.fillRect(-22,-2,44,20);
+  ctx.rotate(ang); ctx.fillStyle = PAL.border; ctx.fillRect(0,-8,46,16); ctx.fillStyle = PAL.accent; ctx.fillRect(4,-5,38,10); ctx.restore();
+}
+
+function drawLaser(t){
+  const g = gunPos(); ctx.save(); ctx.globalAlpha = 0.85; ctx.strokeStyle = PAL.laser; ctx.lineWidth = 3; ctx.setLineDash([10,6]); ctx.lineDashOffset = -t*120;
+  ctx.beginPath(); ctx.moveTo(g.x, g.y); ctx.lineTo(INPUT.x, INPUT.y); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.restore();
+  const rx = Math.round(INPUT.x), ry = Math.round(INPUT.y); ctx.strokeStyle = PAL.laserCore; ctx.lineWidth = 2; ctx.strokeRect(rx-14, ry-14, 28, 28);
+  ctx.fillStyle = PAL.laserCore; ctx.fillRect(rx-2, ry-2, 4, 4); ctx.fillRect(rx-1, ry-18, 2, 8); ctx.fillRect(rx-1, ry+10, 2, 8); ctx.fillRect(rx-18, ry-1, 8, 2); ctx.fillRect(rx+10, ry-1, 8, 2);
+  if (GAME.muzzleFlash > 0){ ctx.save(); ctx.globalAlpha = GAME.muzzleFlash / 0.08; ctx.fillStyle = PAL.accent; ctx.beginPath(); ctx.arc(g.x, g.y, 20, 0, Math.PI*2); ctx.fill(); ctx.restore(); }
+}
+
+function drawHeart(x,y,size,filled){
+  ctx.fillStyle = filled ? PAL.accent2 : '#3a3350'; const s = size/8; const cells = [ "01100110", "11111111", "11111111", "01111110", "00111100", "00011000" ];
+  for (let r=0;r<cells.length;r++){ for (let c=0;c<cells[r].length;c++){ if (cells[r][c]==='1') ctx.fillRect(Math.round(x+c*s), Math.round(y+r*s), Math.ceil(s), Math.ceil(s)); } }
+}
+
+// FULLY RESPONSIVE DYNAMIC HUD
+function drawHUD(){
+  const isMob = W < 600;
+  const barH = isMob ? 84 : 64; 
+  ctx.fillStyle = PAL.border; ctx.fillRect(0,0,W,barH+6); ctx.fillStyle = PAL.panel; ctx.fillRect(0,0,W,barH);
+  ctx.fillStyle = 'rgba(255,255,255,0.04)'; for (let x=0;x<W;x+=8) ctx.fillRect(x,0,4,barH);
+
+  // Score
+  ctx.fillStyle = PAL.accent; ctx.font = (isMob?"12px":"16px") + " 'Press Start 2P'"; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('SCORE', 12, isMob?18:20);
+  ctx.fillStyle = PAL.white; ctx.font = (isMob?"14px":"18px") + " 'Press Start 2P'"; ctx.fillText(String(GAME.score).padStart(5,'0'), 12, isMob?38:44);
+
+  // Ammo Stacked
+  const ammoX = isMob ? 12 : W/2 - 110;
+  ctx.fillStyle = PAL.accent4; ctx.font = "10px 'Press Start 2P'"; ctx.textAlign = 'left'; ctx.fillText('AMMO', ammoX, isMob?60:12);
+  for (let i=0;i<GAME.maxAmmo;i++){
+    const bW = isMob?14:22, bS = isMob?18:30;
+    const bx = ammoX + (isMob?42:0) + i*bS, by = isMob?50:22, filled = i < GAME.ammo;
+    ctx.fillStyle = PAL.border; ctx.fillRect(bx, by, bW, isMob?20:30);
+    ctx.fillStyle = filled ? PAL.accent : '#3a3350'; ctx.fillRect(bx+(isMob?2:3), by+(isMob?2:3), bW-(isMob?4:6), isMob?16:24);
+    ctx.fillStyle = filled ? '#8a5a00' : '#242038'; ctx.fillRect(bx+(isMob?2:3), by+(isMob?2:3), bW-(isMob?4:6), isMob?4:6);
+  }
+  if (GAME.reloading){
+    const pct = Math.min(1, (performance.now()-GAME.reloadStart)/GAME.reloadMs);
+    ctx.fillStyle = PAL.accent2; ctx.font = "10px 'Press Start 2P'"; ctx.fillText('RELOADING', ammoX, isMob?80:58);
+    ctx.fillStyle = PAL.border; ctx.fillRect(ammoX+(isMob?80:92), isMob?76:50, isMob?70:90, 10);
+    ctx.fillStyle = PAL.accent3; ctx.fillRect(ammoX+(isMob?82:94), isMob?78:52, Math.round((isMob?66:86)*pct), 6);
+  }
+
+  // Lives
+  const baseLivesX = isMob ? W - 120 : W - 24 - 5*30; 
+  ctx.fillStyle = PAL.accent2; ctx.font = "10px 'Press Start 2P'"; ctx.textAlign = 'left'; ctx.fillText('LIVES', baseLivesX, 12);
+  for (let i=0;i<5;i++) drawHeart(baseLivesX + i*(isMob?22:30), 22, isMob?18:24, i < GAME.lives);
+}
+
+function drawPanelBox(x,y,w,h){ ctx.fillStyle = PAL.border; ctx.fillRect(x-6,y-6,w+12,h+12); ctx.fillStyle = PAL.panel; ctx.fillRect(x,y,w,h); ctx.strokeStyle = PAL.panelLight; ctx.lineWidth = 4; ctx.strokeRect(x+6,y+6,w-12,h-12); }
+function titleText(txt, x, y, size, color){ const s = W<600 ? Math.floor(size*0.7) : size; ctx.textAlign = 'center'; ctx.font = `${s}px 'Press Start 2P'`; ctx.fillStyle = PAL.border; ctx.fillText(txt, x+4, y+4); ctx.fillStyle = color; ctx.fillText(txt, x, y); }
+
+function drawMenu(){
+  activeButtons = []; ctx.fillStyle = 'rgba(10,8,20,0.55)'; ctx.fillRect(0,0,W,H);
+  const isMob = W<600, bw = Math.min(520, W*0.86), bh = Math.min(420, H*0.8), bx = W/2 - bw/2, by = H/2 - bh/2;
+  drawPanelBox(bx,by,bw,bh);
+  titleText('BALLOON', W/2, by+(isMob?40:60), 26, PAL.accent); titleText('BLASTER', W/2, by+(isMob?70:96), 26, PAL.accent2);
+  ctx.font = (isMob?"8px":"10px") + " 'Press Start 2P'"; ctx.fillStyle = PAL.white; ctx.textAlign = 'center';
+  ['AIM WITH FINGER OR MOUSE', 'PINCH FINGERS OR CLICK TO FIRE', '6 SHOTS PER MAG, THEN RELOAD', "DON'T LET BALLOONS ESCAPE!"].forEach((l,i)=> ctx.fillText(l, W/2, by+(isMob?110:140)+i*20));
+
+  const btnW = Math.min(220, bw*0.8);
+  const startBtn = makeButton(W/2-btnW/2, by+bh-(isMob?120:150), btnW, isMob?40:50, 'START GAME', ()=>{ startGame(); }); activeButtons.push(startBtn);
+  const modeBtn = makeButton(W/2-btnW/2, by+bh-(isMob?64:84), btnW, isMob?34:40, GAME.inputMode==='gesture' ? 'MODE: CAMERA' : 'MODE: TOUCH', ()=>{
+    if (GAME.cameraFailed){ showNote('CAMERA UNAVAILABLE ON THIS DEVICE', 2000); return; }
+    if (!handsModel) initGestureControl();
+    else { GAME.inputMode = GAME.inputMode === 'gesture' ? 'mouse' : 'gesture'; camPreview.style.display = GAME.inputMode === 'gesture' ? 'block' : 'none'; }
+  }); activeButtons.push(modeBtn);
+  
+  const hover1 = hitTestButtons(INPUT.x, INPUT.y); activeButtons.forEach(b=> drawButton(b, b===hover1));
+}
+
+function drawPauseOverlay(){
+  activeButtons = []; ctx.fillStyle = 'rgba(10,8,20,0.6)'; ctx.fillRect(0,0,W,H); titleText('PAUSED', W/2, H/2-60, 26, PAL.accent);
+  const btnW = Math.min(220, W*0.7);
+  const resumeBtn = makeButton(W/2-btnW/2, H/2-10, btnW, 46, 'RESUME', ()=>{ GAME.state='playing'; });
+  const restartBtn = makeButton(W/2-btnW/2, H/2+48, btnW, 46, 'RESTART', ()=>{ startGame(); });
+  activeButtons.push(resumeBtn, restartBtn); const hover = hitTestButtons(INPUT.x, INPUT.y); activeButtons.forEach(b=> drawButton(b, b===hover));
+}
+
+function drawGameOver(){
+  activeButtons = []; ctx.fillStyle = 'rgba(10,8,20,0.7)'; ctx.fillRect(0,0,W,H); titleText('GAME OVER', W/2, H/2-90, 26, PAL.accent2);
+  ctx.font = (W<600?"10px":"14px") + " 'Press Start 2P'"; ctx.fillStyle = PAL.white; ctx.textAlign = 'center'; ctx.fillText(`FINAL SCORE: ${GAME.score}`, W/2, H/2-40);
+  const btnW = Math.min(220, W*0.7);
+  const restartBtn = makeButton(W/2-btnW/2, H/2, btnW, 46, 'PLAY AGAIN', ()=>{ startGame(); }); activeButtons.push(restartBtn);
+  const hover = hitTestButtons(INPUT.x, INPUT.y); activeButtons.forEach(b=> drawButton(b, b===hover));
+}
+
+function drawPlayingChrome(){
+  activeButtons = [];
+  const isMob = W < 600, pW = isMob?44:54, pH = isMob?34:40;
+  const pauseBtn = makeButton(W-pW-8, isMob?48:76, pW, pH, 'II', ()=>{ GAME.state = 'paused'; }); activeButtons.push(pauseBtn);
+  const hover = hitTestButtons(INPUT.x, INPUT.y); drawButton(pauseBtn, pauseBtn===hover);
+}
+
+let lastTime = performance.now();
+function loop(now){
+  let dt = (now - lastTime) / 1000; lastTime = now; if (dt > 0.05) dt = 0.05;
+  const t = now/1000; updateSmoothing(dt); handleFireEdge(); drawBackground(dt, t);
+
+  if (GAME.state === 'playing') updatePlaying(dt);
+
+  for (const b of GAME.balloons) b.draw();
+  for (const p of GAME.particles) p.draw();
+  for (const f of GAME.floats) f.draw();
+
+  drawTurret(); drawLaser(t); drawHUD();
+
+  if (GAME.state === 'playing') drawPlayingChrome();
+  if (GAME.state === 'menu') drawMenu();
+  if (GAME.state === 'paused'){ drawPlayingChrome(); drawPauseOverlay(); }
+  if (GAME.state === 'gameover') drawGameOver();
+
+  if (GAME.screenFlash > 0){ ctx.fillStyle = `rgba(255,60,80,${GAME.screenFlash*0.5})`; ctx.fillRect(0,0,W,H); }
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+window.addEventListener('load', ()=>{ setTimeout(()=>{ initGestureControl(); }, 300); });
+
+})();
+</script>
+</body>
+</html>
