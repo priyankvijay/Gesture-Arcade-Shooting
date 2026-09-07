@@ -55,10 +55,9 @@
     image-rendering:pixelated; filter: contrast(1.05) saturate(1.15); transition: opacity .2s;
   }
   
-  /* FIXED: object-fit contain guarantees no cropping */
   #camPreview video{ position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; transform: scaleX(-1); }
   
-  #camLabel{ position:absolute; top:0; left:0; right:0; font-size:7px; color:var(--accent3); background:rgba(0,0,0,0.6); padding:2px 4px; letter-spacing:1px; }
+  #camLabel{ position:absolute; top:0; left:0; right:0; font-size:7px; color:var(--accent3); background:rgba(0,0,0,0.6); padding:2px 4px; letter-spacing:1px; z-index: 2; }
 
   #loadingNote{
     position:absolute; top:14px; left:50%; transform:translateX(-50%);
@@ -82,8 +81,10 @@
     #speedometer { top: 96px; left: 8px; padding: 4px; gap: 4px; border-width: 2px; }
     .speed-label { font-size: 8px; margin-right: 2px; }
     .speed-btn { font-size: 7px; padding: 6px 6px; }
-    /* FIXED: Box is now portrait ratio for phones */
-    #camPreview { width: 105px; height: 140px; bottom: 8px; left: 8px; border-width: 2px; outline-width: 2px; }
+    
+    /* FIXED: Shifted 50px up so the whole box shows on mobile */
+    #camPreview { width: 105px; height: 140px; bottom: 50px; left: 8px; border-width: 2px; outline-width: 2px; }
+    #camLabel { font-size: 6px; padding: 4px 2px; }
   }
 </style>
 </head>
@@ -99,7 +100,7 @@
   </div>
 
   <div id="camPreview" style="display:none;">
-    <div id="camLabel">CAM // GESTURE</div>
+    <div id="camLabel">CAM//GESTURE</div>
     <video id="inputVideo" autoplay playsinline muted></video>
   </div>
 
