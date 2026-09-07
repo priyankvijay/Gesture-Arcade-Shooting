@@ -1,5 +1,7 @@
 # Balloon Blaster 🎈🔫
 
+Click on the link to play the GAME :  https://priyankvijay.github.io/Gesture-Arcade-Shooting/
+
 Hey! This is a fun little browser game I made using JavaScript, HTML5 Canvas, and MediaPipe (TensorFlow.js). Basically, you play it using your webcam—you point your finger at the screen like a laser sight, and pinch your thumb and index finger together to shoot falling balloons. 
 
 I wanted it to feel like an old-school arcade game but in AR, so everything is drawn in a blocky, Minecraft/80s pixel-art style. 
