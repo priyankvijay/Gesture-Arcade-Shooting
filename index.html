@@ -55,8 +55,8 @@
     image-rendering:pixelated; filter: contrast(1.05) saturate(1.15); transition: opacity .2s;
   }
   
-  #camPreview video{ position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; transform: scaleX(-1); }
-  
+  /* ADDED Z-INDEX TO ENSURE VIDEO SITS ON TOP OF BLACK BACKGROUND */
+  #camPreview video{ position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; transform: scaleX(-1); z-index: 1; }
   #camLabel{ position:absolute; top:0; left:0; right:0; font-size:7px; color:var(--accent3); background:rgba(0,0,0,0.6); padding:2px 4px; letter-spacing:1px; z-index: 2; }
 
   #loadingNote{
@@ -81,8 +81,6 @@
     #speedometer { top: 96px; left: 8px; padding: 4px; gap: 4px; border-width: 2px; }
     .speed-label { font-size: 8px; margin-right: 2px; }
     .speed-btn { font-size: 7px; padding: 6px 6px; }
-    
-    /* FIXED: Shifted 50px up so the whole box shows on mobile */
     #camPreview { width: 105px; height: 140px; bottom: 50px; left: 8px; border-width: 2px; outline-width: 2px; }
     #camLabel { font-size: 6px; padding: 4px 2px; }
   }
@@ -303,10 +301,8 @@ function initGestureControl(){
     handsModel.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.6, minTrackingConfidence: 0.55 });
     handsModel.onResults(onHandsResults);
     
-    const camW = window.innerWidth < 600 ? 360 : 480;
-    const camH = window.innerWidth < 600 ? 480 : 360;
-    
-    mpCamera = new Camera(videoEl, { onFrame: async ()=>{ try{ await handsModel.send({image: videoEl}); }catch(e){} }, width: camW, height: camH });
+    // REVERTED to standard landscape request so mobile hardware doesn't panic
+    mpCamera = new Camera(videoEl, { onFrame: async ()=>{ try{ await handsModel.send({image: videoEl}); }catch(e){} }, width: 480, height: 360 });
     mpCamera.start().then(()=>{ GAME.cameraReady = true; camPreview.style.display = 'block'; showNote('CAMERA READY — POINT FINGER & PINCH TO FIRE', 2200); })
     .catch((err)=>{ GAME.cameraFailed = true; showNote('CAMERA UNAVAILABLE — USING TOUCH CONTROLS', 3000); });
   }catch(err){ GAME.cameraFailed = true; showNote('GESTURE MODE UNAVAILABLE — USING TOUCH CONTROLS', 3000); }
