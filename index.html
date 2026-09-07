@@ -55,7 +55,7 @@
     image-rendering:pixelated; filter: contrast(1.05) saturate(1.15); transition: opacity .2s;
   }
   
-  #camPreview video{ position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; transform: scaleX(-1); }
+  #camPreview video{ position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; transform: scaleX(-1); }
   
   #camLabel{ position:absolute; top:0; left:0; right:0; font-size:7px; color:var(--accent3); background:rgba(0,0,0,0.6); padding:2px 4px; letter-spacing:1px; }
 
@@ -81,7 +81,9 @@
     #speedometer { top: 96px; left: 8px; padding: 4px; gap: 4px; border-width: 2px; }
     .speed-label { font-size: 8px; margin-right: 2px; }
     .speed-btn { font-size: 7px; padding: 6px 6px; }
-    #camPreview { width: 140px; height: 105px; bottom: 8px; left: 8px; border-width: 2px; outline-width: 2px; }
+    
+    /* Box is now tall (portrait) for phones instead of wide */
+    #camPreview { width: 105px; height: 140px; bottom: 8px; left: 8px; border-width: 2px; outline-width: 2px; }
   }
 </style>
 </head>
@@ -299,7 +301,12 @@ function initGestureControl(){
     handsModel = new Hands({ locateFile: (file)=> `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
     handsModel.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.6, minTrackingConfidence: 0.55 });
     handsModel.onResults(onHandsResults);
-    mpCamera = new Camera(videoEl, { onFrame: async ()=>{ try{ await handsModel.send({image: videoEl}); }catch(e){} }, width: 480, height: 360 });
+    
+    // DYNAMIC CAMERA RESOLUTION: Asks for portrait on phones so your full head is captured
+    const camW = window.innerWidth < 600 ? 360 : 480;
+    const camH = window.innerWidth < 600 ? 480 : 360;
+    
+    mpCamera = new Camera(videoEl, { onFrame: async ()=>{ try{ await handsModel.send({image: videoEl}); }catch(e){} }, width: camW, height: camH });
     mpCamera.start().then(()=>{ GAME.cameraReady = true; camPreview.style.display = 'block'; showNote('CAMERA READY — POINT FINGER & PINCH TO FIRE', 2200); })
     .catch((err)=>{ GAME.cameraFailed = true; showNote('CAMERA UNAVAILABLE — USING TOUCH CONTROLS', 3000); });
   }catch(err){ GAME.cameraFailed = true; showNote('GESTURE MODE UNAVAILABLE — USING TOUCH CONTROLS', 3000); }
@@ -415,15 +422,18 @@ function drawHeart(x,y,size,filled){
   for (let r=0;r<cells.length;r++){ for (let c=0;c<cells[r].length;c++){ if (cells[r][c]==='1') ctx.fillRect(Math.round(x+c*s), Math.round(y+r*s), Math.ceil(s), Math.ceil(s)); } }
 }
 
+// FULLY RESPONSIVE DYNAMIC HUD
 function drawHUD(){
   const isMob = W < 600;
   const barH = isMob ? 84 : 64; 
   ctx.fillStyle = PAL.border; ctx.fillRect(0,0,W,barH+6); ctx.fillStyle = PAL.panel; ctx.fillRect(0,0,W,barH);
   ctx.fillStyle = 'rgba(255,255,255,0.04)'; for (let x=0;x<W;x+=8) ctx.fillRect(x,0,4,barH);
 
+  // Score
   ctx.fillStyle = PAL.accent; ctx.font = (isMob?"12px":"16px") + " 'Press Start 2P'"; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('SCORE', 12, isMob?18:20);
   ctx.fillStyle = PAL.white; ctx.font = (isMob?"14px":"18px") + " 'Press Start 2P'"; ctx.fillText(String(GAME.score).padStart(5,'0'), 12, isMob?38:44);
 
+  // Ammo Stacked
   const ammoX = isMob ? 12 : W/2 - 110;
   ctx.fillStyle = PAL.accent4; ctx.font = "10px 'Press Start 2P'"; ctx.textAlign = 'left'; ctx.fillText('AMMO', ammoX, isMob?60:12);
   for (let i=0;i<GAME.maxAmmo;i++){
@@ -440,6 +450,7 @@ function drawHUD(){
     ctx.fillStyle = PAL.accent3; ctx.fillRect(ammoX+(isMob?82:94), isMob?78:52, Math.round((isMob?66:86)*pct), 6);
   }
 
+  // Lives
   const baseLivesX = isMob ? W - 120 : W - 24 - 5*30; 
   ctx.fillStyle = PAL.accent2; ctx.font = "10px 'Press Start 2P'"; ctx.textAlign = 'left'; ctx.fillText('LIVES', baseLivesX, 12);
   for (let i=0;i<5;i++) drawHeart(baseLivesX + i*(isMob?22:30), 22, isMob?18:24, i < GAME.lives);
